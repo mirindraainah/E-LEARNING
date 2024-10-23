@@ -21,7 +21,7 @@ class _CreerEditerQCMPageState extends State<CreerEditerQCMPage> {
   final TextEditingController _dureeController = TextEditingController();
   DateTime _dateEvaluation = DateTime.now();
   List<Question> _questions = [];
-  List<TextEditingController> _questionControllers = []; // Ajoutez ceci
+  List<TextEditingController> _questionControllers = [];
   File? _imageFile;
   String? _imageUrl;
   bool _isLoading = false;
@@ -201,7 +201,7 @@ class _CreerEditerQCMPageState extends State<CreerEditerQCMPage> {
                       final DateTime? picked = await showDatePicker(
                         context: context,
                         initialDate: _dateEvaluation,
-                        firstDate: DateTime.now(),
+                        firstDate: DateTime(2000),
                         lastDate: DateTime.now().add(Duration(days: 365)),
                       );
                       if (picked != null) {

@@ -12,12 +12,12 @@ class CountdownPage extends StatefulWidget {
 class _CountdownPageState extends State<CountdownPage>
     with SingleTickerProviderStateMixin {
   Timer? _timer;
-  bool _isCountdownFinished = false;
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
-  Duration? _currentDifference;
-  bool _isCountdownStarted = false;
-  bool _hasActiveEvaluation = false;
+  ValueNotifier<Duration> _currentDifference =
+      ValueNotifier(Duration(seconds: 0));
+  StreamSubscription? _evaluationSubscription;
+  StreamSubscription? _qcmSubscription;
 
   @override
   void initState() {
@@ -33,17 +33,53 @@ class _CountdownPageState extends State<CountdownPage>
       ),
     );
     _animationController.repeat(reverse: true);
+    _startRealTimeTimer();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _evaluationSubscription?.cancel();
+    _qcmSubscription?.cancel();
     _animationController.dispose();
+    _currentDifference.dispose();
     super.dispose();
   }
 
+  void _startRealTimeTimer() {
+    _timer = Timer.periodic(Duration(milliseconds: 100), (timer) {
+      if (!mounted) return;
+
+      if (_currentEvaluationData != null) {
+        final dateEvaluation =
+            (_currentEvaluationData!['dateEvaluation'] as Timestamp).toDate();
+        final duree = _currentEvaluationData!['duree'] as int;
+        final endTime = dateEvaluation.add(Duration(minutes: duree));
+        final now = DateTime.now();
+
+        if (now.isAfter(dateEvaluation) && now.isBefore(endTime)) {
+          // L'évaluation est en cours
+          _timer?.cancel();
+          _navigateToQCM(_currentEvaluationId!, _currentEvaluationData!);
+        } else if (now.isBefore(dateEvaluation)) {
+          // Mise à jour du compte à rebours
+          _currentDifference.value = dateEvaluation.difference(now);
+        } else {
+          // L'évaluation est terminée
+          _currentEvaluationData = null;
+          _currentEvaluationId = null;
+        }
+      }
+    });
+  }
+
+  Map<String, dynamic>? _currentEvaluationData;
+  String? _currentEvaluationId;
+
   Future<void> _navigateToQCM(
       String evaluationId, Map<String, dynamic> qcmData) async {
+    if (!mounted) return;
+
     await Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -55,56 +91,19 @@ class _CountdownPageState extends State<CountdownPage>
     );
   }
 
-  void _checkEvaluationExpiration(DateTime dateEvaluation, int duree,
-      String evaluationId, Map<String, dynamic> qcmData) async {
-    final DateTime endTime = dateEvaluation.add(Duration(minutes: duree));
-    final now = DateTime.now();
-
-    if (now.isAfter(endTime)) {
-      // L'évaluation est déjà terminée
-      if (_hasActiveEvaluation) {
-        // Ne pas afficher le message si c'est déjà inactif
-        // setState(() {
-        //   _hasActiveEvaluation = false; // Aucune évaluation active
-        // });
-      }
-    } else if (now.isAfter(dateEvaluation)) {
-      // L'évaluation a commencé mais n'est pas encore terminée
-      if (!_hasActiveEvaluation) {
-        // Ne pas rediriger si déjà actif
-        setState(() {
-          _hasActiveEvaluation = true; // Une évaluation est active
-        });
-        Future.microtask(() async {
-          await _navigateToQCM(evaluationId, qcmData);
-        });
-      }
-    } else {
-      setState(() {
-        _hasActiveEvaluation = true; // Une évaluation est active
-      });
-    }
+  Stream<QuerySnapshot> _getEvaluationsStream(List<dynamic> userParcours) {
+    return FirebaseFirestore.instance
+        .collection('evaluations_actives')
+        .where('parcours', isEqualTo: userParcours)
+        .where('status', isEqualTo: 'scheduled')
+        .snapshots();
   }
 
-  void _startCountdown(
-      Duration difference, String evaluationId, Map<String, dynamic> qcmData) {
-    if (_timer != null) return;
-
-    _currentDifference = difference;
-
-    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
-      if (!mounted) return;
-
-      setState(() {
-        if (_currentDifference!.inSeconds <= 0) {
-          _timer?.cancel();
-          _hasActiveEvaluation = false; // Met à jour l'état de l'évaluation
-        } else {
-          _currentDifference =
-              Duration(seconds: _currentDifference!.inSeconds - 1);
-        }
-      });
-    });
+  Stream<DocumentSnapshot> _getQCMStream(String evaluationId) {
+    return FirebaseFirestore.instance
+        .collection('qcm')
+        .doc(evaluationId)
+        .snapshots();
   }
 
   @override
@@ -116,95 +115,75 @@ class _CountdownPageState extends State<CountdownPage>
         title: Text('Évaluations'),
         elevation: 0,
       ),
-      body: Stack(
-        children: [
-          StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .doc(user?.uid)
-                .snapshots(),
-            builder: (context, userSnapshot) {
-              if (!userSnapshot.hasData ||
-                  userSnapshot.connectionState == ConnectionState.waiting) {
-                return Center(child: CircularProgressIndicator());
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(user?.uid)
+            .snapshots(),
+        builder: (context, userSnapshot) {
+          if (!userSnapshot.hasData) {
+            return Center(child: CircularProgressIndicator());
+          }
+
+          final userData = userSnapshot.data!.data() as Map<String, dynamic>;
+          final userParcours = userData['parcours'] as List<dynamic>;
+
+          return StreamBuilder<QuerySnapshot>(
+            stream: _getEvaluationsStream(userParcours),
+            builder: (context, snapshot) {
+              if (snapshot.hasError ||
+                  !snapshot.hasData ||
+                  snapshot.data!.docs.isEmpty) {
+                _currentEvaluationData = null;
+                _currentEvaluationId = null;
+                return _buildNoEvaluationMessage();
               }
 
-              final userData =
-                  userSnapshot.data!.data() as Map<String, dynamic>;
-              final userParcours = userData['parcours'];
+              final evaluationActive = snapshot.data!.docs.first;
+              final evaluationId = evaluationActive.id;
+              _currentEvaluationId = evaluationId;
 
-              return StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('evaluations_actives')
-                    .where('parcours', isEqualTo: userParcours)
-                    .where('status', isEqualTo: 'scheduled')
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Center(child: CircularProgressIndicator());
-                  }
-
-                  if (snapshot.hasError ||
-                      snapshot.data == null ||
-                      snapshot.data!.docs.isEmpty) {
+              return StreamBuilder<DocumentSnapshot>(
+                stream: _getQCMStream(evaluationId),
+                builder: (context, qcmSnapshot) {
+                  if (!qcmSnapshot.hasData || qcmSnapshot.hasError) {
+                    _currentEvaluationData = null;
                     return _buildNoEvaluationMessage();
                   }
 
-                  final evaluationActive = snapshot.data!.docs.first;
-                  final evaluationId = evaluationActive.id;
+                  final qcmData =
+                      qcmSnapshot.data!.data() as Map<String, dynamic>;
+                  _currentEvaluationData = qcmData;
 
-                  return StreamBuilder<DocumentSnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('qcm')
-                        .doc(evaluationId)
-                        .snapshots(),
-                    builder: (context, qcmSnapshot) {
-                      if (qcmSnapshot.connectionState ==
-                          ConnectionState.waiting) {
-                        return Center(child: CircularProgressIndicator());
-                      }
+                  final dateEvaluation =
+                      (qcmData['dateEvaluation'] as Timestamp).toDate();
+                  final duree = qcmData['duree'] as int;
+                  final title = qcmData['titre'] ?? 'Évaluation sans titre';
+                  final now = DateTime.now();
+                  final endTime = dateEvaluation.add(Duration(minutes: duree));
 
-                      if (!qcmSnapshot.hasData || qcmSnapshot.hasError) {
-                        return _buildNoEvaluationMessage();
-                      }
+                  if (now.isAfter(dateEvaluation) && now.isBefore(endTime)) {
+                    // Redirection immédiate si l'évaluation est en cours
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _navigateToQCM(evaluationId, qcmData);
+                    });
+                    return Center(child: CircularProgressIndicator());
+                  } else if (now.isAfter(endTime)) {
+                    return _buildNoEvaluationMessage();
+                  }
 
-                      final qcmData =
-                          qcmSnapshot.data!.data() as Map<String, dynamic>;
-                      final dateEvaluation =
-                          (qcmData['dateEvaluation'] as Timestamp).toDate();
-                      final duree = qcmData['duree'] as int;
-                      final title = qcmData['titre'] ?? 'Évaluation sans titre';
-
-                      // Vérifier si l'évaluation est expirée
-                      _checkEvaluationExpiration(
-                          dateEvaluation, duree, evaluationId, qcmData);
-
-                      final difference =
-                          dateEvaluation.difference(DateTime.now());
-
-                      // Démarrer le compte à rebours si nécessaire
-                      if (!_isCountdownStarted) {
-                        _isCountdownStarted =
-                            true; // Marquez le compte à rebours comme démarré
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          _startCountdown(difference, evaluationId, qcmData);
-                        });
-                      }
-
-                      // Afficher l'évaluation seulement si active
-                      if (_hasActiveEvaluation) {
-                        return _buildEvaluationCountdown(
-                            title, _currentDifference ?? difference, duree);
-                      } else {
-                        return _buildNoEvaluationMessage(); // Afficher message si pas d'évaluation
-                      }
+                  return ValueListenableBuilder<Duration>(
+                    valueListenable: _currentDifference,
+                    builder: (context, difference, child) {
+                      return _buildEvaluationCountdown(
+                          title, difference, duree);
                     },
                   );
                 },
               );
             },
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -276,7 +255,7 @@ class _CountdownPageState extends State<CountdownPage>
                     style: TextStyle(
                       fontSize: 18,
                       color: difference.inSeconds <= 60
-                          ? Colors.red
+                          ? Colors.white70
                           : Colors.white70,
                     ),
                   ),
