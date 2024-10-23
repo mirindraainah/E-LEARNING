@@ -48,4 +48,4 @@ lib/assets/service_account.json
 # Other environment files
 .env
 
-/lib/firebase_options.dart
+lib/firebase_options.dart
