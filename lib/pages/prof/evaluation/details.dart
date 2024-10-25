@@ -34,6 +34,10 @@ class _CreerEditerQCMPageState extends State<CreerEditerQCMPage> {
     }
   }
 
+  double _calculateTotalBareme() {
+    return _questions.fold(0, (sum, question) => sum + question.bareme);
+  }
+
   void _chargerDonneesQCM() async {
     DocumentSnapshot qcmDoc = await FirebaseFirestore.instance
         .collection('qcm')
@@ -99,11 +103,21 @@ class _CreerEditerQCMPageState extends State<CreerEditerQCMPage> {
 
       // Filtrer les options vides
       for (var question in _questions) {
-        question.options =
-            question.options.where((option) => option.isNotEmpty).toList();
-        question.reponsesCorrectes = question.reponsesCorrectes
-            .where((response) => question.options.contains(response))
-            .toList();
+        if (question.type == QuestionType.choixMultiple) {
+          // Nettoie les options vides pour les questions à choix multiples
+          question.options = question.options
+              .where((option) => option.trim().isNotEmpty)
+              .toList();
+          // S'assure que les réponses correctes existent dans les options
+          question.reponsesCorrectes = question.reponsesCorrectes
+              .where((response) => question.options.contains(response))
+              .toList();
+        } else {
+          // Pour les réponses libres, s'assure qu'il n'y a pas de réponses vides
+          question.reponsesCorrectes = question.reponsesCorrectes
+              .where((reponse) => reponse.trim().isNotEmpty)
+              .toList();
+        }
       }
 
       Map<String, dynamic> qcmData = {
@@ -315,6 +329,42 @@ class _CreerEditerQCMPageState extends State<CreerEditerQCMPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Ajout du total des barèmes
+        Container(
+          padding: EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.stars, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Text(
+                    'Total des points :',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                '${_calculateTotalBareme().toStringAsFixed(1)} pts',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Colors.blue.shade700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 30),
         Text('Questions', style: Theme.of(context).textTheme.headlineSmall),
         SizedBox(height: 16),
         ..._questions.asMap().entries.map((entry) {
@@ -374,23 +424,39 @@ class _CreerEditerQCMPageState extends State<CreerEditerQCMPage> {
                       if (question.type == QuestionType.choixMultiple)
                         _buildChoixMultipleOptions(question, index),
                       if (question.type == QuestionType.reponseLibre)
-                        TextFormField(
-                          initialValue: question.reponsesCorrectes.isNotEmpty
-                              ? question.reponsesCorrectes.join(', ')
-                              : '',
-                          decoration: InputDecoration(
-                            labelText:
-                                'Réponses correctes (séparées par des virgules)',
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (value) {
-                            setState(() {
-                              _questions[index].reponsesCorrectes = value
-                                  .split(',')
-                                  .map((s) => s.trim())
-                                  .toList();
-                            });
-                          },
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextFormField(
+                              initialValue:
+                                  question.reponsesCorrectes.join('\n'),
+                              decoration: InputDecoration(
+                                labelText: 'Réponses acceptées',
+                                helperText:
+                                    'Entrez chaque réponse sur une nouvelle ligne',
+                                border: OutlineInputBorder(),
+                              ),
+                              maxLines: null,
+                              onChanged: (value) {
+                                setState(() {
+                                  // Sépare les réponses par les sauts de ligne et retire les espaces inutiles
+                                  _questions[index].reponsesCorrectes = value
+                                      .split('\n')
+                                      .map((s) => s.trim())
+                                      .where((s) => s.isNotEmpty)
+                                      .toList();
+                                });
+                              },
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Nombre de réponses acceptées: ${question.reponsesCorrectes.length}',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ),
                       SizedBox(height: 16),
                       TextFormField(

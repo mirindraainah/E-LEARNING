@@ -59,7 +59,9 @@ class _CountdownPageState extends State<CountdownPage>
 
         if (now.isAfter(dateEvaluation) && now.isBefore(endTime)) {
           // L'évaluation est en cours
+
           _timer?.cancel();
+          setState(() {});
           _navigateToQCM(_currentEvaluationId!, _currentEvaluationData!);
         } else if (now.isBefore(dateEvaluation)) {
           // Mise à jour du compte à rebours
@@ -164,7 +166,9 @@ class _CountdownPageState extends State<CountdownPage>
 
                   if (now.isAfter(dateEvaluation) && now.isBefore(endTime)) {
                     // Redirection immédiate si l'évaluation est en cours
+
                     WidgetsBinding.instance.addPostFrameCallback((_) {
+                      setState(() {});
                       _navigateToQCM(evaluationId, qcmData);
                     });
                     return Center(child: CircularProgressIndicator());

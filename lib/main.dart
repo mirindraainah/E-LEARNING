@@ -11,6 +11,7 @@ import 'pages/admin/connected_page_admin.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'api/firebase_api.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'pages/student/evaluation/countdown.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,6 +43,7 @@ class MyApp extends StatelessWidget {
         '/signup': (context) => const SignUpPage(),
         '/connectedpage': (context) => const ConnectedPage(),
         '/connectedpage2': (context) => const ConnectedPage2(),
+        '/countdownPage': (context) => CountdownPage(),
       },
       debugShowCheckedModeBanner: false,
     );

@@ -18,6 +18,7 @@ class QCMPage extends StatefulWidget {
 }
 
 class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
+  late PageController _pageController;
   late AnimationController _progressAnimationController;
   int _currentQuestionIndex = 0;
   Map<int, List<String>> _userAnswers = {};
@@ -32,6 +33,7 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
     _scrollController = ScrollController();
     _progressAnimationController = AnimationController(
       vsync: this,
@@ -60,7 +62,9 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
         if (_remainingTime > 0) {
           _remainingTime--;
           if (_remainingTime <= 300 && !_showWarning) {
+            // 5 minutes warning
             _showWarning = true;
+            _showTimeWarning();
           }
         } else {
           _timer.cancel();
@@ -68,6 +72,22 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
         }
       });
     });
+  }
+
+  void _showTimeWarning() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Attention !'),
+        content: Text('Il ne reste plus que 5 minutes !'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Compris'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _submitQCM({bool isTimeUp = false}) async {
@@ -165,6 +185,7 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
   void dispose() {
     _timer.cancel();
     _scrollController.dispose();
+    _pageController.dispose();
     _progressAnimationController.dispose();
     super.dispose();
   }
@@ -184,67 +205,101 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     List<Map<String, dynamic>> questions =
         List<Map<String, dynamic>>.from(widget.qcmData['questions']);
+    double progressValue = (_currentQuestionIndex + 1) / questions.length;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.qcmData['titre'] ?? 'QCM'),
-        automaticallyImplyLeading: false,
-        actions: [
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            margin: EdgeInsets.only(right: 16),
-            decoration: BoxDecoration(
-              color: _remainingTime <= 300
-                  ? Colors.red.withOpacity(0.2)
-                  : Colors.blue.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.timer,
-                  color: _remainingTime <= 300 ? Colors.red : null,
+    return WillPopScope(
+      onWillPop: () async {
+        bool? confirmExit = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Quitter le QCM ?'),
+            content: Text(
+                'Vos réponses ne seront pas enregistrées. Êtes-vous sûr de vouloir quitter ?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Non'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => ConnectedPage()),
+                  (route) => false,
                 ),
-                SizedBox(width: 8),
-                Text(
-                  _formatTime(_remainingTime),
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                child: Text('Oui'),
+                // style: ElevatedButton.styleFrom(
+                //   backgroundColor: Colors.red,
+                // ),
+              ),
+            ],
+          ),
+        );
+        return confirmExit ?? false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.qcmData['titre'] ?? 'QCM'),
+          automaticallyImplyLeading: false,
+          actions: [
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              margin: EdgeInsets.only(right: 16),
+              decoration: BoxDecoration(
+                color: _remainingTime <= 300
+                    ? Colors.red.withOpacity(0.2)
+                    : Colors.blue.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.timer,
                     color: _remainingTime <= 300 ? Colors.red : null,
                   ),
-                ),
-              ],
+                  SizedBox(width: 8),
+                  Text(
+                    _formatTime(_remainingTime),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: _remainingTime <= 300 ? Colors.red : null,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          LinearProgressIndicator(
-            value: _remainingTime / (widget.qcmData['duree'] * 60),
-            backgroundColor: Colors.grey[200],
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-            minHeight: 6,
-          ),
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              itemCount: questions.length,
-              itemBuilder: (context, index) {
-                return _buildQuestionCard(questions[index], index);
-              },
+          ],
+        ),
+        body: Column(
+          children: [
+            LinearProgressIndicator(
+              value: progressValue,
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+              minHeight: 6,
             ),
-          ),
-        ],
+            Expanded(
+              child: PageView.builder(
+                controller: _pageController,
+                physics: BouncingScrollPhysics(), // Permet le défilement manuel
+                itemCount: questions.length,
+                onPageChanged: (index) {
+                  setState(() => _currentQuestionIndex = index);
+                  _progressAnimationController.forward(from: 0.0);
+                },
+                itemBuilder: (context, index) {
+                  return SingleChildScrollView(
+                    controller: _scrollController,
+                    physics:
+                        AlwaysScrollableScrollPhysics(), // Permet le défilement vertical
+                    child: _buildQuestionCard(questions[index], index),
+                  );
+                },
+              ),
+            ),
+            _buildNavigationBar(questions.length),
+          ],
+        ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _submitQCM,
-        label: Text('Soumettre le QCM'),
-        icon: Icon(Icons.check),
-        backgroundColor: Colors.blue,
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
@@ -405,5 +460,80 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  Widget _buildNavigationBar(int totalQuestions) {
+    bool hasAnswered = _userAnswers[_currentQuestionIndex]?.isNotEmpty ?? false;
+
+    return AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        height: _userScrolling
+            ? 0
+            : null, // Cache la barre de navigation pendant le défilement
+        child: Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 4,
+                offset: Offset(0, -2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              if (_currentQuestionIndex > 0)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    _pageController.previousPage(
+                      duration: Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
+                  },
+                  icon: Icon(Icons.arrow_back),
+                  label: Text('Précédent'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[300],
+                    foregroundColor: Colors.black,
+                  ),
+                ),
+              if (_currentQuestionIndex > 0) SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: hasAnswered
+                      ? () {
+                          if (_currentQuestionIndex < totalQuestions - 1) {
+                            _pageController.nextPage(
+                              duration: Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          } else {
+                            _submitQCM();
+                          }
+                        }
+                      : null,
+                  icon: Icon(
+                    _currentQuestionIndex < totalQuestions - 1
+                        ? Icons.arrow_forward
+                        : Icons.check,
+                  ),
+                  label: Text(
+                    _currentQuestionIndex < totalQuestions - 1
+                        ? 'Suivant'
+                        : 'Terminer',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey[300],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ));
   }
 }

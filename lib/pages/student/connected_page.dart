@@ -15,18 +15,25 @@ class ConnectedPage extends StatefulWidget {
   const ConnectedPage({super.key});
 
   @override
-  _ConnectedPageState createState() => _ConnectedPageState();
+  ConnectedPageState createState() => ConnectedPageState(); // Changez ici
 }
 
-class _ConnectedPageState extends State<ConnectedPage> {
+class ConnectedPageState extends State<ConnectedPage> {
+  // Changez ici
   int _selectedIndex = 0;
+
+  void updateSelectedIndex(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
 
   final List<Widget> _pages = [
     const HomePage(),
     const CoursesPage(),
     const VisioPage(),
     ForumPage(),
- CountdownPage(), 
+    CountdownPage(),
     const ProfilePage(),
   ];
 
