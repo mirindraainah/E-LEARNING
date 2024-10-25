@@ -26,27 +26,14 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
   bool _isSubmitting = false;
   bool _showWarning = false;
 
-  late ScrollController _scrollController;
-  bool _userScrolling = false;
-
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController();
     _progressAnimationController = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: 300),
     );
     _initializeQCM();
-
-    // Écouteur pour détecter quand l'utilisateur fait défiler
-    _scrollController.addListener(() {
-      if (_scrollController.position.isScrollingNotifier.value) {
-        setState(() => _userScrolling = true);
-      } else {
-        setState(() => _userScrolling = false);
-      }
-    });
   }
 
   void _initializeQCM() {
@@ -88,10 +75,13 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
               child: Text('Non'),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (context) => ConnectedPage()),
-                (route) => false,
-              ),
+              onPressed: () => {
+                _submitQCM(),
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => ConnectedPage()),
+                  (route) => false,
+                )
+              },
               child: Text('Oui'),
             ),
           ],
@@ -164,7 +154,6 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
   @override
   void dispose() {
     _timer.cancel();
-    _scrollController.dispose();
     _progressAnimationController.dispose();
     super.dispose();
   }
@@ -219,24 +208,21 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          LinearProgressIndicator(
-            value: _remainingTime / (widget.qcmData['duree'] * 60),
-            backgroundColor: Colors.grey[200],
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-            minHeight: 6,
-          ),
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              itemCount: questions.length,
-              itemBuilder: (context, index) {
-                return _buildQuestionCard(questions[index], index);
-              },
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            LinearProgressIndicator(
+              value: _remainingTime / (widget.qcmData['duree'] * 60),
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+              minHeight: 6,
             ),
-          ),
-        ],
+            ...questions.asMap().entries.map<Widget>((entry) {
+              int index = entry.key;
+              return _buildQuestionCard(entry.value, index);
+            }).toList(),
+          ],
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _submitQCM,
@@ -249,7 +235,9 @@ class _QCMPageState extends State<QCMPage> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildQuestionCard(Map<String, dynamic> question, int questionIndex) {
-    return SingleChildScrollView(
+    return SizedBox(
+      width: MediaQuery.of(context).size.width *
+          1.0, // Ajustez la largeur comme souhaité
       child: Card(
         margin: EdgeInsets.all(16),
         elevation: 4,
